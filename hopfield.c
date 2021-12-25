@@ -41,6 +41,44 @@ void random_binary(Matrix *m)
 	for (j=0; j<m->ncols; ++j) mat_set(m, m->nrows-1, j, -1);
 }
 
+void mat_col_shuffle(Matrix *m, size_t j, size_t num_shuffles)
+/*shuffle column j of a matrix */
+/*last row is left out*/
+{
+	size_t n, r1, r2;
+	double tmp;
+	for (n=0; n<num_shuffles; ++n)
+	{
+		r1 = (size_t) rand() % (m->nrows-1);
+		r2 = (size_t) rand() % (m->nrows-1);
+		if (r1 != r2)
+		{
+			tmp = mat_get(m, r2, j);
+			mat_set(m, r2, j, mat_get(m, r1, j));
+			mat_set(m, r1, j, tmp);
+		}
+	}
+}
+
+void sparse_binary(Matrix *m, double sparsity)
+/*sparsity is the fraction of +1 neurons */
+{
+	size_t numPos = (size_t) ( sparsity * (m->nrows-1) );
+	size_t i,j;
+	for (i=0; i<m->nrows; ++i)
+	{
+		for (j=0; j<m->ncols; ++j)
+		{
+			mat_set(m, i, j, i<numPos ? 1 : -1);
+		}
+	}
+	//perform NROW shuffles on each column
+	for (j=0; j<m->ncols; ++j)
+	{
+		mat_col_shuffle(m, j, m->nrows); //I assume shuffling a length K vector K times is enough to make it random
+	}
+}
+
 void learn(Matrix *w, Matrix *x)
 /* w is a K by K weight matrix
  * x is a K by T binary column vector. T columns of training examples.
@@ -196,13 +234,18 @@ double hopfield(size_t num_input, size_t K, size_t numCorrupt, size_t niter)
 
 	Matrix *w = mat_new(_K, _K, NULL);
 	Matrix *x = mat_new(_K, num_input, NULL);
-	random_binary(x); //random inputs to learn
+
+		sparse_binary(x, 0.20); //random inputs to learn
+
+	Matrix *xt = mat_transpose(x);
 	
 	learn(w,x);
 
 	double avg_acc = test_recall(w, x, numCorrupt);
-	//printf("num. inputs: %lu, input length: %lu, num. corrupt: %lu, avg. acc: %.4f\n", num_input, K, numCorrupt, avg_acc);
 	printf("%lu\t%lu\t%lu\t%lu\t%.4f\n", niter, num_input, K, numCorrupt, avg_acc);
+
+	mat_free(w);
+	mat_free(x);
 	
 	return avg_acc;
 }
@@ -211,15 +254,15 @@ int main()
 {
 	srand(time(0)); //initialize random seed
 
-	size_t nReps=50, niter;
 	double avg_acc=0;
 	
-	//header
 	printf("trial\tnum patterns\tpattern size\tnum. corrupt units\tavg. acc\n");
 	
+	size_t niter;
+	size_t nReps=50;
 	for (niter=0; niter<nReps; ++niter)
 	{
-		avg_acc += hopfield(90, 100, 0, niter);
+		avg_acc += hopfield(15, 100, 0, niter);
 	}
 	avg_acc /= (double) nReps;
 

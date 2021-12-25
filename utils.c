@@ -89,6 +89,7 @@ void randomize(Matrix *m, double min, double max)
 }
 
 void mat_shuffle(Matrix *m, size_t num_shuffles)
+/*shuffle a column vector */
 {
 	size_t i,j,r1,r2;
 	double tmp;
@@ -108,6 +109,8 @@ void mat_shuffle(Matrix *m, size_t num_shuffles)
 		}
 	}
 }
+
+
 
 double mat_get(const Matrix *m, const size_t i, const size_t j)
 {
@@ -215,7 +218,7 @@ void print_mat(const Matrix *m)
 	{ 
 		for (j=0; j<m->ncols; ++j)
 		{
-			printf("%.1f\t", mat_get(m,i,j));
+			printf("%.1f,", mat_get(m,i,j));
 		}
 		printf("\n");
 	}
