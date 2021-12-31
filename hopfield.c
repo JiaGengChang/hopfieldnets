@@ -1,6 +1,4 @@
-#include <utils.h>
-#include <time.h>
-#include <math.h>
+#include <hopfield.h>
 
 extern inline double activate(double x)
 {
@@ -91,14 +89,16 @@ void hebb(Matrix *w, Matrix *x)
  * W is set to the outer product, xxT, averaging over the T training examples
  */
 {
-	size_t i ,j, t;
+	//size_t i ,j, t;
+    size_t i;
 	size_t _K = x->nrows;
 	size_t T = x->ncols;
 
-	Matrix *xxT = mat_new(_K, _K, NULL);
+    /*
+    Matrix *xxT = mat_new(_K, _K, NULL);
 
-	for (t=0; t<T; ++t)
-	{
+    for (t=0; t<T; ++t)
+    {
 		Matrix *x_tcol = mat_col(x, t);
 		Matrix *x_trow = mat_transpose(x_tcol);
 		mat_dot(x_tcol, x_trow, xxT);
@@ -106,15 +106,20 @@ void hebb(Matrix *w, Matrix *x)
 		mat_free(x_trow);
 		mat_free(x_tcol);
 	}
+    mat_free(xxT);
+    */
+
+    Matrix *xT = mat_transpose(x);
+    mat_dot(x, xT, w);
 
 	//set self-connections to 0
 	for (i=0; i<_K; ++i) mat_set(w, i, i, 0);
 	
 	//scale by learning rate parameter 1/T
-	scalar_mult(w, (double) (1.0/(double)T), w); 
+	scalar_mult(w, (double) (1.0/(double)T), w);
 	
-	mat_free(xxT);
 }
+
 void hebb_gd(Matrix *w, Matrix *x, size_t N, double alpha)
 /* w is a K by K weight matrix
  * x is a K by T binary column vector. T columns of training examples.
@@ -188,6 +193,23 @@ void hebb_gd(Matrix *w, Matrix *x, size_t N, double alpha)
 	mat_free(t);
 }
 
+void storkey(Matrix *w, Matrix *x)
+{
+	size_t i;
+	size_t _K = x->nrows;
+	size_t T = x->ncols;
+
+    Matrix *xT = mat_transpose(x);
+    mat_dot(x, xT, w);
+
+	//set self-connections to 0
+	for (i=0; i<_K; ++i) mat_set(w, i, i, 0);
+	
+	//scale by learning rate parameter 1/T
+	scalar_mult(w, (double) (1.0/(double)T), w);
+
+}
+
 Matrix* recall(Matrix *w, Matrix *xc)
 {
 	/* test the ability of hopfield net w to recall x given
@@ -224,7 +246,7 @@ Matrix* recall(Matrix *w, Matrix *xc)
 			mat_free(w_col);
 			mat_free(yt);
 
-			if (abs(y_new - y_last) > 1e-2) //will it even converge?
+			if (y_new - y_last > 1e-2 || y_last - y_new > 1e-2) //will it even converge?
 			{
 				mat_set(y, j, 0, y_new); //update network state
 				stable=0; //repeat
@@ -340,8 +362,8 @@ double hopfield(size_t numInput, size_t K, double sparseness, size_t numCorrupt,
 
 	Matrix *xt = mat_transpose(x);
 	
-	storkey(w, x);
-	//hebb_gd(w, x, numSteps, alpha);
+	//storkey(w, x);
+	hebb_gd(w, x, numSteps, alpha);
 	
 	random_loss(w, numLoss); //random loss of weights 
 
@@ -354,37 +376,4 @@ double hopfield(size_t numInput, size_t K, double sparseness, size_t numCorrupt,
 	mat_free(xt);
 	
 	return avg_acc;
-}
-
-int main()
-{
-	//srand(time(0)); //initialize random seed
-	srand(42); //initialize random seed
-
-	size_t numInput = 15;
-	size_t K = 100;
-	size_t numTrials = 100; //number of random binary input matrices
-
-	//fine tune parameters
-	double sparseness = 0.50; //0.50 gives best retrieval accuracy
-	size_t numCorrupt = 0; //no. of input bits flipped
-	size_t numLoss = 0; //total no. of weights is 101*101
-	size_t numSteps = 1; //number of gradient descent steps
-	double alpha=0; //prevent weights from becoming too large
-
-	printf("# params:\n# num. input: %lu\n# K: %lu\n# sparseness: %.2f\n# num. corrupt: %lu\n# num. dropout: %lu\n# num. GD steps: %lu\n# alpha: %.2f\n# num. trials: %lu\n", numInput, K, sparseness, numCorrupt, numLoss, numSteps, alpha, numTrials);
-
-	printf("trial\tnum patterns\tpattern size\tnum. corrupt units\tavg. acc\n");
-	
-	size_t ntrial=0;
-	double avg_acc=0;
-	for (; ntrial<numTrials; ++ntrial)
-	{
-		avg_acc += hopfield(numInput, K, sparseness, numCorrupt, numLoss, ntrial, numSteps, alpha);
-	}
-	avg_acc /= (double) numTrials;
-
-	printf("# overall average accuracy: %.4f\n", avg_acc);
-
-	return 0;
 }
