@@ -1,9 +1,15 @@
 #include <utils.h>
 #include <time.h>
+#include <math.h>
 
 extern inline double activate(double x)
 {
 	return x > 0 ? 1 : -1;
+}
+
+double sigmoid(double x)
+{
+	return 1 / (1 + exp(-x));
 }
 
 void shuffle_a(size_t a[], size_t n) //fisher-yates shuffle an array
@@ -41,13 +47,13 @@ void random_binary(Matrix *m)
 	for (j=0; j<m->ncols; ++j) mat_set(m, m->nrows-1, j, -1);
 }
 
-void mat_col_shuffle(Matrix *m, size_t j, size_t num_shuffles)
+void mat_col_shuffle(Matrix *m, size_t j, size_t numShuffles)
 /*shuffle column j of a matrix */
 /*last row is left out*/
 {
 	size_t n, r1, r2;
 	double tmp;
-	for (n=0; n<num_shuffles; ++n)
+	for (n=0; n<numShuffles; ++n)
 	{
 		r1 = (size_t) rand() % (m->nrows-1);
 		r2 = (size_t) rand() % (m->nrows-1);
@@ -79,7 +85,7 @@ void sparse_binary(Matrix *m, double sparsity)
 	}
 }
 
-void learn(Matrix *w, Matrix *x)
+void hebb(Matrix *w, Matrix *x)
 /* w is a K by K weight matrix
  * x is a K by T binary column vector. T columns of training examples.
  * W is set to the outer product, xxT, averaging over the T training examples
@@ -108,6 +114,78 @@ void learn(Matrix *w, Matrix *x)
 	scalar_mult(w, (double) (1.0/(double)T), w); 
 	
 	mat_free(xxT);
+}
+void hebb_gd(Matrix *w, Matrix *x, size_t N, double alpha)
+/* w is a K by K weight matrix
+ * x is a K by T binary column vector. T columns of training examples.
+ * W is set to the outer product, xxT, averaging over the T training examples
+ * alpha is the 0-1 parameter for preventing spiralling weights
+ * N is the number of gradient descent steps
+ */
+{
+	size_t i ,j;
+	size_t _K = x->nrows;
+	size_t T = x->ncols;
+	size_t n; //number of training iterations
+
+	hebb(w, x); //initialize weights using hebb rule
+
+	//t is identical to x except that -1s are replaced by 0s
+	//except bias row
+	Matrix *t = mat_new(_K, T, x->data);
+	for (i=0; i<_K-1; ++i)
+		for (j=0; j<T; ++j)
+			mat_set(t, i, j, mat_get(x, i, j) < 0 ? 0 : 1 );
+
+	//start of improved version of hebb rule
+	Matrix *xT = mat_transpose(x); //T by K
+	Matrix *a = mat_new(_K, _K, NULL); //activation matrix
+	Matrix *y = mat_new(_K, _K, NULL); //output matrix
+	Matrix *e = mat_new(_K, _K, NULL); //error matrix
+	Matrix *dw = mat_new(_K, _K, NULL); //delta matrix
+	Matrix *gw = mat_new(_K, _K, NULL); //gradient matrix
+
+	for (n=0; n<N; ++n)
+	{
+		//set self-weights to 0
+		for (i=0; i<_K; ++i) mat_set(w, i, i, 0);
+
+		//compute all activations 
+		mat_dot(x, w, a);
+
+		//compute all outputs
+		mat_apply(a, sigmoid, y);
+
+		//compute all errors
+		mat_sub(y, t, e);
+
+		//compute the gradients
+		mat_dot(xT, e, gw);
+
+		//symmetrize gradients
+		Matrix *gwT = mat_transpose(gw);
+		mat_add(gw, gwT, gw);
+		mat_free(gwT);
+		
+		//make step
+		Matrix *aw = mat_new(_K, _K, NULL);
+		scalar_mult(w, alpha, aw);
+		mat_sub(dw, aw, dw);
+		scalar_mult(dw, (double) (1.0/(double)T), dw); //multiply by lr=1/T
+
+		mat_add(w, dw, w);
+
+		//set bias weights to 0
+		for (i=0; i<_K; ++i) mat_set(w, w->nrows-1, i, 0); 
+
+	}
+
+	mat_free(xT);
+	mat_free(a);
+	mat_free(e);
+	mat_free(dw);
+	mat_free(gw);
+	mat_free(t);
 }
 
 Matrix* recall(Matrix *w, Matrix *xc)
@@ -158,8 +236,31 @@ Matrix* recall(Matrix *w, Matrix *xc)
 	return y;
 }
 
+/*simulate random loss of weights*/
+void random_loss(Matrix *m, size_t numLoss)
+{
+	if (numLoss > 0)
+	{
+		size_t i,j,k,K = m->nrows, K2 = K*K;
+
+		size_t idx[K2]; //linearized 2d idx
+		for (i=0; i<numLoss; ++i) {idx[i] = i;}
+		shuffle_a(idx, K2); 
+
+		//select random coordinates in w to mutate
+		//TODO: diagonals are already 0
+		for (k=0; k<numLoss; ++k)
+		{
+			i = k % K;
+			j = k / K;
+			mat_set(m, i, j, 0);
+		}
+		
+	}
+}
+
 Matrix* corrupt_column(Matrix *x, size_t n)
-/* corrupt a column vector n times 
+/* corrupt a column vector n times by flipping the sign
  * but don't change the bias
  * */
 {
@@ -227,47 +328,63 @@ double test_recall(Matrix *w, Matrix *x, size_t numCorrupt)
 	return acc;
 }
 
-double hopfield(size_t num_input, size_t K, size_t numCorrupt, size_t niter)
+double hopfield(size_t numInput, size_t K, double sparseness, size_t numCorrupt, size_t numLoss, size_t numTrials, size_t numSteps, double alpha)
 {
 
 	const size_t _K = K+1; //+1 bias term
 
 	Matrix *w = mat_new(_K, _K, NULL);
-	Matrix *x = mat_new(_K, num_input, NULL);
+	Matrix *x = mat_new(_K, numInput, NULL);
 
-		sparse_binary(x, 0.20); //random inputs to learn
+	sparse_binary(x, sparseness); //random inputs to learn
 
 	Matrix *xt = mat_transpose(x);
 	
-	learn(w,x);
+	storkey(w, x);
+	//hebb_gd(w, x, numSteps, alpha);
+	
+	random_loss(w, numLoss); //random loss of weights 
 
-	double avg_acc = test_recall(w, x, numCorrupt);
-	printf("%lu\t%lu\t%lu\t%lu\t%.4f\n", niter, num_input, K, numCorrupt, avg_acc);
+	double avg_acc = test_recall(w, x, numCorrupt); //corrupt random bits
+
+	printf("%lu\t%lu\t%lu\t%lu\t%.4f\n", numTrials, numInput, K, numCorrupt, avg_acc);
 
 	mat_free(w);
 	mat_free(x);
+	mat_free(xt);
 	
 	return avg_acc;
 }
 
 int main()
 {
-	srand(time(0)); //initialize random seed
+	//srand(time(0)); //initialize random seed
+	srand(42); //initialize random seed
 
-	double avg_acc=0;
-	
+	size_t numInput = 15;
+	size_t K = 100;
+	size_t numTrials = 100; //number of random binary input matrices
+
+	//fine tune parameters
+	double sparseness = 0.50; //0.50 gives best retrieval accuracy
+	size_t numCorrupt = 0; //no. of input bits flipped
+	size_t numLoss = 0; //total no. of weights is 101*101
+	size_t numSteps = 1; //number of gradient descent steps
+	double alpha=0; //prevent weights from becoming too large
+
+	printf("# params:\n# num. input: %lu\n# K: %lu\n# sparseness: %.2f\n# num. corrupt: %lu\n# num. dropout: %lu\n# num. GD steps: %lu\n# alpha: %.2f\n# num. trials: %lu\n", numInput, K, sparseness, numCorrupt, numLoss, numSteps, alpha, numTrials);
+
 	printf("trial\tnum patterns\tpattern size\tnum. corrupt units\tavg. acc\n");
 	
-	size_t niter;
-	size_t nReps=50;
-	for (niter=0; niter<nReps; ++niter)
+	size_t ntrial=0;
+	double avg_acc=0;
+	for (; ntrial<numTrials; ++ntrial)
 	{
-		avg_acc += hopfield(15, 100, 0, niter);
+		avg_acc += hopfield(numInput, K, sparseness, numCorrupt, numLoss, ntrial, numSteps, alpha);
 	}
-	avg_acc /= (double) nReps;
+	avg_acc /= (double) numTrials;
 
 	printf("# overall average accuracy: %.4f\n", avg_acc);
 
 	return 0;
-
 }
