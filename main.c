@@ -4,11 +4,11 @@
 int main()
 {
 	//srand(time(0)); //initialize random seed
-	srand(42); //initialize random seed
+	srand(44); //initialize random seed
 
 	size_t numInput = 15;
 	size_t K = 100;
-	size_t numTrials = 100; //number of random binary input matrices
+	size_t numTrials = 50; //number of random binary input matrices
 
 	//fine tune parameters
 	double sparseness = 0.50; //0.50 gives best retrieval accuracy

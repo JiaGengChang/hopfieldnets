@@ -1,5 +1,11 @@
 #include <hopfield.h>
 
+void zero_diagonal(Matrix* w)
+{
+	size_t i=0;
+	while (i++ < w->nrows) mat_set(w, i, i, 0);
+}
+
 extern inline double activate(double x)
 {
 	return x > 0 ? 1 : -1;
@@ -89,34 +95,14 @@ void hebb(Matrix *w, Matrix *x)
  * W is set to the outer product, xxT, averaging over the T training examples
  */
 {
-	//size_t i ,j, t;
-    size_t i;
-	size_t _K = x->nrows;
-	size_t T = x->ncols;
-
-    /*
-    Matrix *xxT = mat_new(_K, _K, NULL);
-
-    for (t=0; t<T; ++t)
-    {
-		Matrix *x_tcol = mat_col(x, t);
-		Matrix *x_trow = mat_transpose(x_tcol);
-		mat_dot(x_tcol, x_trow, xxT);
-		mat_add(w, xxT, w);
-		mat_free(x_trow);
-		mat_free(x_tcol);
-	}
-    mat_free(xxT);
-    */
-
     Matrix *xT = mat_transpose(x);
     mat_dot(x, xT, w);
 
 	//set self-connections to 0
-	for (i=0; i<_K; ++i) mat_set(w, i, i, 0);
+	zero_diagonal(w);
 	
 	//scale by learning rate parameter 1/T
-	scalar_mult(w, (double) (1.0/(double)T), w);
+	scalar_mult(w, (double) (1.0/(double)x->ncols), w);
 	
 }
 
@@ -153,7 +139,7 @@ void hebb_gd(Matrix *w, Matrix *x, size_t N, double alpha)
 	for (n=0; n<N; ++n)
 	{
 		//set self-weights to 0
-		for (i=0; i<_K; ++i) mat_set(w, i, i, 0);
+		zero_diagonal(w);
 
 		//compute all activations 
 		mat_dot(x, w, a);
@@ -181,7 +167,7 @@ void hebb_gd(Matrix *w, Matrix *x, size_t N, double alpha)
 		mat_add(w, dw, w);
 
 		//set bias weights to 0
-		for (i=0; i<_K; ++i) mat_set(w, w->nrows-1, i, 0); 
+		for (i=0; i<_K; ++i) mat_set(w, w->nrows-1, i, 0);
 
 	}
 
@@ -195,18 +181,32 @@ void hebb_gd(Matrix *w, Matrix *x, size_t N, double alpha)
 
 void storkey(Matrix *w, Matrix *x)
 {
-	size_t i;
 	size_t _K = x->nrows;
 	size_t T = x->ncols;
 
-    Matrix *xT = mat_transpose(x);
-    mat_dot(x, xT, w);
+	//one step hebb rule
+    hebb(w,x);
+
+	//h_ik = w_ij x_jk
+	Matrix *h = mat_new(_K, T, NULL);
+	mat_dot(w, x, h);
+
+	//r_ij = s_ij - h_ij
+	Matrix *r = mat_new(_K, T, NULL);
+	mat_sub(x, h, r); 
+
+	//dw_ij = r_ik * r_kj
+	Matrix *dw = mat_new(_K, _K, NULL);
+	Matrix *rT = mat_transpose(r);
+	mat_dot(r, rT, dw);
+
+	//perform storkey update on w
+	mat_add(w, dw, w);
 
 	//set self-connections to 0
-	for (i=0; i<_K; ++i) mat_set(w, i, i, 0);
+	zero_diagonal(w);
 	
-	//scale by learning rate parameter 1/T
-	scalar_mult(w, (double) (1.0/(double)T), w);
+	mat_free(rT); mat_free(r); mat_free(h); mat_free(dw);
 
 }
 
@@ -362,8 +362,8 @@ double hopfield(size_t numInput, size_t K, double sparseness, size_t numCorrupt,
 
 	Matrix *xt = mat_transpose(x);
 	
-	//storkey(w, x);
-	hebb_gd(w, x, numSteps, alpha);
+	storkey(w, x);
+	//hebb_gd(w, x, numSteps, dup_alpha);
 	
 	random_loss(w, numLoss); //random loss of weights 
 

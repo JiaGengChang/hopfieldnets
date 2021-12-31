@@ -1,6 +1,10 @@
+#ifndef hopfield_h
+#define hopfield_h
+
 #include <utils.h>
 #include <math.h>
 
+void zero_diagonal(Matrix* w);
 double sigmoid(double x);
 void shuffle_a(size_t a[], size_t n);
 void print_a(size_t a[], size_t n);
@@ -16,3 +20,5 @@ Matrix* corrupt_column(Matrix *x, size_t n);
 double accuracy(Matrix *xt, Matrix *xr);
 double test_recall(Matrix *w, Matrix *x, size_t numCorrupt);
 double hopfield(size_t numInput, size_t K, double sparseness, size_t numCorrupt, size_t numLoss, size_t numTrials, size_t numSteps, double alpha);
+
+#endif
